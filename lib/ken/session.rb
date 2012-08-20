@@ -50,7 +50,7 @@ module Ken
       :raw => '/api/trans/raw',
       :login => '/api/account/login',
       :upload => '/api/service/upload',
-      :topic => '/experimental/topic',
+      :topic => '/api/experimental/topic',
       :search => '/api/service/search'
     }
 
