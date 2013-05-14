@@ -9,4 +9,5 @@ group :development do
   gem 'jeweler'
   gem 'shoulda'
   gem 'jnunemaker-matchy', '0.4.0'
+  gem 'debugger'
 end

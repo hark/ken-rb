@@ -2,7 +2,7 @@ module Ken
   class << self
     attr_accessor :session
   end
-  
+
   # A class for returing errors from the freebase api.
   # For more infomation see the freebase documentation:
   class ReadError < ArgumentError
@@ -15,43 +15,39 @@ module Ken
       "#{code}: #{msg}"
     end
   end
-  
+
   class AttributeNotFound < StandardError ; end
   class PropertyNotFound < StandardError ; end
   class ResourceNotFound < StandardError ; end
   class TopicNotFound < StandardError ; end
   class ViewNotFound < StandardError ; end
-  
+
   # partially taken from chris eppstein's freebase api
   # http://github.com/chriseppstein/freebase/tree
   class Session
-    public
+    attr_reader :host, :key
+
     # Initialize a new Ken Session
-    #   Ken::Session.new(host{String, IO}, username{String}, password{String})
+    #   Ken::Session.new(host{String, IO}, key{String})
     #
     # @param host<String>          the API host
-    # @param username<String>      freebase username
-    # @param password<String>      user password
-    def initialize(host, username, password)
+    # @param key<String>           google api key
+    def initialize(host, key = nil)
       @host = host
-      @username = username
-      @password = password
-      
+      @key = key
+
       Ken.session = self
 
       # TODO: check connection
       Ken.logger.info("connection established.")
     end
-    
+
     SERVICES = {
-      :mqlread => '/api/service/mqlread',
-      :mqlwrite => '/api/service/mqlwrite',
-      :blurb => '/api/trans/blurb',
-      :raw => '/api/trans/raw',
-      :login => '/api/account/login',
-      :upload => '/api/service/upload',
-      :topic => '/api/experimental/topic',
-      :search => '/api/service/search'
+      :mqlread => '/mqlread',
+      :mqlwrite => '/mqlwrite',
+      :topic => '/topic',
+      :search => '/search',
+      :rdf => '/rdf',
     }
 
     # get the service url for the specified service.
@@ -67,9 +63,9 @@ module Ken
 
     # raise an error if the inner response envelope is encoded as an error
     def handle_read_error(inner)
-      unless inner['code'][0, '/api/status/ok'.length] == '/api/status/ok'
-        Ken.logger.error "Read Error #{inner.inspect}"
-        error = inner['messages'][0]
+      if inner['error']
+        error = inner['error']
+        Ken.logger.error "Read Error #{error.inspect}"
         raise ReadError.new(error['code'], error['message'])
       end
     end # handle_read_error
@@ -89,81 +85,76 @@ module Ken
           cursor = response['cursor']
         end
       else
-        response = get_query_response(query, cursor)
-        cursor = response['cursor']
+        response = get_query_response(query)
         query_result = response['result']
       end
       query_result
     end
-    
-    def raw_content(id, options = {})
-      response = http_request raw_service_url+id, options
-      Ken.logger.info "<<< Received Raw Content Response: #{response}"
-      response
-    end
-    
-    def blurb_content(id, options = {})
-      response = http_request blurb_service_url+id, options
-      Ken.logger.info "<<< Received Blurb Content Response: #{response}"
-      response
-    end
-    
+
     def topic(id, options = {})
-      options.merge!({:id => id})
-      
-      response = http_request topic_service_url+"/standard", options
+      response = http_request topic_service_url + id, options
       result = JSON.parse response
-      inner = result[id]
-      handle_read_error(inner)
-      Ken.logger.info "<<< Received Topic Response: #{inner['result'].inspect}"
-      inner['result']
+      handle_read_error(result)
+      Ken.logger.info "<<< Received Topic Response: #{result.inspect}"
+      result
     end
-    
+
     def search(query, options = {})
       Ken.logger.info ">>> Sending Search Query: #{query}"
       options.merge!({:query => query})
-      
+
       response = http_request search_service_url, options
       result = JSON.parse response
-      
+
       handle_read_error(result)
-      
+
       Ken.logger.info "<<< Received Topic Response: #{result['result'].inspect}"
       result['result']
     end
 
     protected
+
     # returns parsed json response from freebase mqlread service
     def get_query_response(query, cursor=nil)
-      envelope = { :qname => {:query => query, :escape => false }}
-      envelope[:qname][:cursor] = cursor if cursor
-      
-      response = http_request mqlread_service_url, :queries => envelope.to_json
+      params = {
+        :query => query.to_json,
+        :html_escape => false,
+      }
+
+      if cursor
+        params[:cursor] = (cursor == true) ? "" : cursor
+      end
+
+      response = http_request mqlread_service_url, params
       result = JSON.parse response
-      inner = result['qname']
-      handle_read_error(inner)
-      Ken.logger.info "<<< Received Response: #{inner['result'].inspect}"
-      inner
+      handle_read_error(result)
+      Ken.logger.info "<<< Received Response: #{result['result'].inspect}"
+      result
     end
-    
+
     # encode parameters
     def params_to_string(parameters)
       parameters.keys.map {|k| "#{URI.encode(k.to_s)}=#{URI.encode(parameters[k].to_s)}" }.join('&')
     end
-    
+
     # does the dirty work
     def http_request(url, parameters = {})
-      params = params_to_string(parameters)
-      url << '?'+params unless params !~ /\S/
+      parameters[:key] = key if !key.nil?
+      param_string = params_to_string(parameters)
+
+      url << '?'+param_string unless param_string !~ /\S/
       Ken.logger.info "<<< URL queried: #{url}"
-            
-      return Net::HTTP.get_response(::URI.parse(url)).body
-      
-      fname = "#{MD5.md5(params)}.mql"
-      open(fname,"w") do |f|
-        f << response
-      end
-      Ken.logger.info("Wrote response to #{fname}")
+
+      uri = URI.parse(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+
+      request = Net::HTTP::Get.new(uri.request_uri)
+
+      response = http.request(request)
+
+      return response.body
     end
   end # class Session
 end # module Ken

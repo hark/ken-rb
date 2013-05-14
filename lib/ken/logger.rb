@@ -32,7 +32,7 @@ require "time"
 # This avoids file creation on Ken init when it creates the
 # default logger.
 module Ken
-  
+
   class << self #:nodoc:
     attr_accessor :logger
   end
@@ -54,7 +54,7 @@ module Ken
     #     debug: low-level information for developers
     #
     #   Ken::Logger::LEVELS[:off, :fatal, :error, :warn, :info, :debug]
-    
+
     LEVELS =
     {
       :off   => 99999,
@@ -168,7 +168,7 @@ module Ken
       @delimiter = delimiter
 
       initialize_log(log)
-      
+
       Ken.logger = self
 
       self.info("Logfile created") if log_creation
